@@ -1,0 +1,163 @@
+{% for pcname, pc in pcs.iteritems() %}
+<div class="pcpower-container" data-pc="{{ pcname }}">
+  <div id="messages"></div>
+  <div class="page-header">
+    <h3>{{ pc.display_name }}</h3>
+  </div>
+  <h4>Status <button class="pcpower-status-refresh btn btn-link btn-xs"><span class="glyphicon glyphicon-refresh"></span></button></h4>
+  <p class="pcpower-status">
+    <span class="network btn btn-warning">Network</span>
+    <span class="power_led btn btn-warning">Power</span>
+    <span class="mains_power btn btn-warning">Mains Power</span>
+  </p>
+  <h4>Controls</h4>
+  <div class="pcpower-controls collapse">
+    <div class="btn-group power-btn-container">
+      <button class="power power-btn btn btn-primary" type="button"><span class="glyphicon glyphicon-off"></span> Power</button>
+      <button class="power btn btn-primary dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
+        <span class="caret"></span>
+        <span class="sr-only">Toggle Dropdown</span>
+      </button>
+      <ul class="dropdown-menu" role="menu">
+        <li><a data-type="soft">Soft</a></li>
+        <li><a data-type="on">On</a></li>
+        <li><a data-type="off">Off</a></li>
+      </ul>
+    </div>
+    <button class="mains_power btn btn-primary" type="button"><span class="glyphicon glyphicon-off"></span> Mains Power</button>
+  </div>
+  <a class="btn toggle-controls"><span data-alt="Hide">Show</span> controls »</a>
+</div>
+{% endfor %}
+<script>
+last_status = {};
+
+function display_message(msg, type) {
+  if (typeof type == 'undefined' || type == 'error')
+    var c = 'bg-danger';
+  else
+    var c = 'bg-' + type;
+  var p = $('<p></p>').addClass(c).text(msg);
+  $('#messages').html(p);
+}
+
+function validate_response(data) {
+  if (typeof data == 'object' && 'status' in data && 'message' in data && 'data' in data) {
+    if (data['status'] == 'ok') {
+      return true;
+    } else {
+      display_message(data['message']);
+      return false;
+    }
+  } else {
+    display_message('A critical error has occurred.');
+    return false;
+  }
+}
+
+function api_call(url, success_callback, error_callback, complete_callback) {
+  $.ajax({
+    url: url,
+    type: 'get',
+    dataType: 'json',
+    success: function(data) {
+      if (validate_response(data)) {
+        if (typeof success_callback == 'function')
+          success_callback(data);
+      } else {
+        if (typeof error_callback == 'function')
+          error_callback(data);
+      }
+    },
+    error: function(response, status, xhr) {
+      if (typeof error_callback == 'function')
+        error_callback(response, status, xhr);
+    }, complete: function() {
+      if (typeof complete_callback == 'function')
+        complete_callback();
+    }
+  });
+}
+
+function status_update(pc) {
+  var container = $('.pcpower-container[data-pc="' + pc + '"]');
+  container.find('.pcpower-status-refresh').addClass('disabled');
+  var status_container =  container.find('.pcpower-status');
+  api_call('/pcpower/' + pc + '/status/', function(response) {
+    last_status[pc] = response['data'];
+    for (var sname in response['data']) {
+      var status = response['data'][sname];
+      if (status)
+        status_container.find('.' + sname).removeClass('btn-danger btn-warning').addClass('btn-success');
+      else
+        status_container.find('.' + sname).removeClass('btn-success btn-warning').addClass('btn-danger');
+    }
+  }, function() {
+    status_container.find('.btn').removeClass('btn-danger btn-success').addClass('btn-warning');
+  }, function() {
+    container.find('.pcpower-status-refresh').removeClass('disabled');
+  });
+}
+
+function power_control(pc, control, status) {
+  var button = $('.pcpower-container[data-pc="' + pc + '"] .pcpower-controls .' + control);
+  button.addClass('disabled');
+  var url = '/pcpower/' + pc + '/' + control.replace(/_/g, '-') + '/' + status;
+  api_call(url, null, null, function() {
+    button.removeClass('disabled');
+    status_update(pc);
+  });
+}
+
+$('.pcpower-status-refresh').click(function() {
+  var pc = $(this).parents('.pcpower-container').attr('data-pc');
+  status_update(pc);
+});
+
+$('.toggle-controls').click(function(e) {
+  e.preventDefault();
+  var parent = $(this).parents('.pcpower-container').find('.pcpower-controls').collapse('toggle');
+  var span = $(this).find('span');
+  var text = span.text();
+  var alt = span.attr('data-alt');
+  span.text(alt).attr('data-alt', text);
+});
+
+$('.pcpower-controls .power-btn-container .dropdown-menu a').click(function() {
+  var pc = $(this).parents('.pcpower-container').attr('data-pc');
+  var status = $(this).attr('data-type');
+  var msg = 'Are you sure you want to click "' + status + '"?';
+  var msg2 = 'Really sure?';
+  if (!window.confirm(msg) || !window.confirm(msg2))
+    return false;
+  power_control(pc, 'power', status);
+});
+
+$('.pcpower-controls .power-btn, .pcpower-controls .mains_power').click(function() {
+  var pc = $(this).parents('.pcpower-container').attr('data-pc');
+  if ($(this).hasClass('power')) {
+    var control_name = 'PC power';
+    var control = 'power';
+    var status_name = 'power_led';
+  } else {
+    var control_name = 'mains power';
+    var control = 'mains_power';
+    var status_name = 'mains_power';
+  }
+  var status = last_status[pc][status_name];
+  if (status)
+    status = 'off';
+  else
+    status = 'on';
+  var msg = 'Are you sure you want to turn ' + status + ' ' + control_name + '?';
+  var msg2 = 'Really sure?';
+  if (!window.confirm(msg) || !window.confirm(msg2))
+    return false;
+  power_control(pc, control, status);
+});
+
+$('.pcpower-container').each(function() {
+  var pc = $(this).attr('data-pc');
+  status_update(pc);
+});
+</script>
